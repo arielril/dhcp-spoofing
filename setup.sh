@@ -37,3 +37,5 @@ usermod -a -G wireshark vagrant
 /etc/init.d/core-daemon start
 systemctl daemon-reload
 systemctl start core-daemon
+
+reboot -h now

@@ -33,7 +33,7 @@ Vagrant.configure(2) do |config|
   config.ssh.forward_x11 = true
 
   # run as sudo
-  config.vm.provision "shell", privileged: true, path: "installcore.sh"
+  config.vm.provision "shell", privileged: true, path: "setup.sh"
 
  config.trigger.after :up, :reload do |trigger|
    trigger.info = "More information"
