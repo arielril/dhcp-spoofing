@@ -32,13 +32,14 @@ Vagrant.configure(2) do |config|
   config.ssh.forward_agent = true
   config.ssh.forward_x11 = true
 
-  config.vm.provision "shell", path: "vagrantsh/installcore.sh"
+  # run as sudo
+  config.vm.provision "shell", privileged: true, path: "installcore.sh"
 
-  config.trigger.after :up, :reload do |trigger|
-    trigger.info = "More information"
-    trigger.run_remote = {
-      path: './vagrantsh/bootstrap.sh'
-    }
-  end
+ config.trigger.after :up, :reload do |trigger|
+   trigger.info = "More information"
+   trigger.run_remote = {
+     path: './bootstrap.sh'
+   }
+ end
 
 end
