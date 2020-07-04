@@ -38,7 +38,7 @@ Vagrant.configure(2) do |config|
  config.trigger.after :up, :reload do |trigger|
    trigger.info = "More information"
    trigger.run_remote = {
-     path: './bootstrap.sh'
+     path: './boot.sh'
    }
  end
 

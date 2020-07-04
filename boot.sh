@@ -7,6 +7,3 @@ sudo apt remove
 /etc/init.d/core-daemon start
 sudo service core-daemon start
 sudo service core-daemon restart
-
-echo "" >> ~/.bashrc
-echo "cd /vagrant" >> ~/.bashrc

@@ -38,4 +38,7 @@ usermod -a -G wireshark vagrant
 systemctl daemon-reload
 systemctl start core-daemon
 
+echo "" >> ~/.bashrc
+echo "cd /vagrant" >> ~/.bashrc
+
 reboot -h now
