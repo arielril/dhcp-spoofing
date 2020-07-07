@@ -104,7 +104,7 @@ def getSpoofedDHCPOffer(data) -> bytes:
     offer = struct.pack(
         '!BBBBIHHIIII 16s 64s 128s I',
         DHCP_OP_REPLY,  # operation
-        DHCPOFFER,  # type
+        0x01,  # type
         6,  # hlen | only one MAC address
         0x00,  # hops
         dhcpXid,  # xid
@@ -130,7 +130,7 @@ def getSpoofedDHCPOffer(data) -> bytes:
         54, 4, socket.inet_aton('10.0.0.12'),
         255,
     )
-    print('offer opts', offer_opts)
+
     return offer+offer_opts
 
 
@@ -252,6 +252,7 @@ def spoof(s: socket) -> None:
                         'dhcp': dhcp,
                     }
 
+                    # TODO: fix to use the message type option to check what message it is...
                     htype = dhcp['htype']
                     if htype == DHCPDISCOVER:
                         print('DHCP discover')
