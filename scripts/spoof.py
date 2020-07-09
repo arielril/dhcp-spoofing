@@ -166,23 +166,24 @@ offeredIPs = []  # ip as a string
 usedIPs = []  # ip as a string
 usedSuffixes = []
 maxIP = 126
+minIP = 100
 
 
 def getLooseIP() -> str:
-    lastIp = 1
-    ip = 2
+    ip = None
 
     if len(usedSuffixes):
-        ips = usedSuffixes
-        ips.sort()
-        for v in ips:
-            if v >= maxIP:
-                return ''
-            if v >= lastIp+1:
-                ip = lastIp+1
-                break
-            else:
-                lastIp = v
+        lastSuff = usedSuffixes[len(usedSuffixes)-1]
+
+        if lastSuff:
+            ip = lastSuff + 1
+        else:
+            ip = minIP
+
+        if ip > maxIP:
+            ip = ''
+    else:
+        ip = minIP
 
     return '10.0.0.' + str(ip)
 
@@ -498,6 +499,9 @@ def spoof(s: socket) -> None:
                 print('UDP len:', plen)
 
                 if isDHCP(psrc, pdst):
+                    print('IPs...', offeredIPs)
+                    print('used', usedIPs)
+                    print('suff', usedSuffixes)
                     (dhcp, dhcp_data) = decodeDHCP(udp_data)
                     # print('DHCP:', dhcp)
                     print('DHCP xid', hex(dhcp['xid']))
