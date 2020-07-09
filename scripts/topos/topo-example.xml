@@ -49,12 +49,12 @@
       <interface_two id="0" name="eth0" mac="00:00:00:aa:00:0e"/>
       <options delay="0" bandwidth="0" per="0.0" dup="0" jitter="0" type="LinkTypes.WIRED" unidirectional="0"/>
     </link>
-    <link node_one="3" node_two="2">
-      <interface_two id="0" name="eth0" mac="00:00:00:aa:00:02" ip4="10.0.0.10" ip4_mask="24" ip6="2001::10" ip6_mask="64"/>
-      <options delay="0" bandwidth="0" per="0.0" dup="0" jitter="0" type="LinkTypes.WIRED" unidirectional="0"/>
-    </link>
     <link node_one="3" node_two="6">
       <interface_two id="0" name="eth0" mac="00:00:00:aa:00:03" ip4="10.0.0.11" ip4_mask="24" ip6="2001::11" ip6_mask="64"/>
+      <options delay="0" bandwidth="0" per="0.0" dup="0" jitter="0" type="LinkTypes.WIRED" unidirectional="0"/>
+    </link>
+    <link node_one="3" node_two="2">
+      <interface_two id="0" name="eth0" mac="00:00:00:aa:00:02" ip4="10.0.0.10" ip4_mask="24" ip6="2001::10" ip6_mask="64"/>
       <options delay="0" bandwidth="0" per="0.0" dup="0" jitter="0" type="LinkTypes.WIRED" unidirectional="0"/>
     </link>
   </links>
@@ -103,6 +103,20 @@ ln -s /var/run/resolvconf/interface/eth0.dhclient /var/run/resolvconf/resolv.con
         <startup>sh startbind.sh</startup>
       </startups>
       <files>
+        <file name="/var/cache/bind/teste.com.zone"><![CDATA[
+$TTL 86400 @ IN SOA teste.com root.teste.com ( 2018050600 3600 900 604800 86400 ) @ IN NS server www IN A 10.0.0.10 server IN A 10.0.0.20 client IN A 10.0.0.30
+]]></file>
+        <file name="startbind.sh"><![CDATA[
+# configure named files over existing folder 
+
+mount -n --bind named.conf.local /etc/bind/named.conf.local 
+mount -n --bind named.conf.options /etc/bind/named.conf.options 
+
+# start bind9 /etc/init.d/bind9 restart
+]]></file>
+        <file name="/var/cache/bind/google.com.zone"><![CDATA[
+$TTL 86400 @ IN SOA google.com root.google.com ( 2018050600 3600 900 604800 86400 ) @ IN NS server www IN A 10.0.0.10 server IN A 10.0.0.20 client IN A 10.0.0.30
+]]></file>
         <file name="named.conf.local"><![CDATA[
 zone 
   "teste.com" IN { 
@@ -117,20 +131,6 @@ zone "google.com" IN {
 ]]></file>
         <file name="named.conf.options"><![CDATA[
 options { directory "/var/cache/bind"; listen-on port 53 { localhost;10.0.0.0/24; }; allow-query { localhost; 10.0.0.0/24;}; forwarders { 8.8.8.8; }; recursion yes; };
-]]></file>
-        <file name="/var/cache/bind/google.com.zone"><![CDATA[
-$TTL 86400 @ IN SOA google.com root.google.com ( 2018050600 3600 900 604800 86400 ) @ IN NS server www IN A 10.0.0.10 server IN A 10.0.0.20 client IN A 10.0.0.30
-]]></file>
-        <file name="startbind.sh"><![CDATA[
-# configure named files over existing folder 
-
-mount -n --bind named.conf.local /etc/bind/named.conf.local 
-mount -n --bind named.conf.options /etc/bind/named.conf.options 
-
-# start bind9 /etc/init.d/bind9 restart
-]]></file>
-        <file name="/var/cache/bind/teste.com.zone"><![CDATA[
-$TTL 86400 @ IN SOA teste.com root.teste.com ( 2018050600 3600 900 604800 86400 ) @ IN NS server www IN A 10.0.0.10 server IN A 10.0.0.20 client IN A 10.0.0.30
 ]]></file>
       </files>
     </service>
@@ -183,6 +183,20 @@ subnet 10.0.0.0 netmask 255.255.255.0 {
         <startup>sh startbind.sh</startup>
       </startups>
       <files>
+        <file name="/var/cache/bind/teste.com.zone"><![CDATA[
+$TTL 86400 @ IN SOA teste.com root.teste.com ( 2018050600 3600 900 604800 86400 ) @ IN NS server www IN A 10.0.0.20 server IN A 10.0.0.30 client IN A 10.0.0.10
+]]></file>
+        <file name="startbind.sh"><![CDATA[
+# configure named files over existing folder 
+
+mount -n --bind named.conf.local /etc/bind/named.conf.local 
+mount -n --bind named.conf.options /etc/bind/named.conf.options 
+
+# start bind9 /etc/init.d/bind9 restart
+]]></file>
+        <file name="/var/cache/bind/google.com.zone"><![CDATA[
+$TTL 86400 @ IN SOA google.com root.google.com ( 2018050600 3600 900 604800 86400 ) @ IN NS server www IN A 10.0.0.20 server IN A 10.0.0.30 client IN A 10.0.0.10
+]]></file>
         <file name="named.conf.local"><![CDATA[
 zone "teste.com" IN { 
   type master; 
@@ -206,20 +220,6 @@ options {
   forwarders { 8.8.8.8; }; 
   recursion yes; 
 };
-]]></file>
-        <file name="/var/cache/bind/google.com.zone"><![CDATA[
-$TTL 86400 @ IN SOA google.com root.google.com ( 2018050600 3600 900 604800 86400 ) @ IN NS server www IN A 10.0.0.20 server IN A 10.0.0.30 client IN A 10.0.0.10
-]]></file>
-        <file name="startbind.sh"><![CDATA[
-# configure named files over existing folder 
-
-mount -n --bind named.conf.local /etc/bind/named.conf.local 
-mount -n --bind named.conf.options /etc/bind/named.conf.options 
-
-# start bind9 /etc/init.d/bind9 restart
-]]></file>
-        <file name="/var/cache/bind/teste.com.zone"><![CDATA[
-$TTL 86400 @ IN SOA teste.com root.teste.com ( 2018050600 3600 900 604800 86400 ) @ IN NS server www IN A 10.0.0.20 server IN A 10.0.0.30 client IN A 10.0.0.10
 ]]></file>
       </files>
     </service>
@@ -304,7 +304,7 @@ ln -s /var/run/resolvconf/interface/eth0.dhclient /var/run/resolvconf/resolv.con
     <configuration name="canvas c1" value="{name {Canvas1}}"/>
     <configuration name="global_options" value="interface_names=yes ip_addresses=yes ipv6_addresses=no node_labels=yes link_labels=yes show_api=no background_images=no annotations=yes grid=yes traffic_start=0"/>
     <configuration name="annotation a1" value="{iconcoords {100.0 109.0}} {type text} {label {CLIENT}} {labelcolor black} {fontfamily {Arial}} {fontsize 12} {canvas c1}"/>
-    <configuration name="annotation a2" value="{iconcoords {657.0 102.0}} {type text} {label {DHCP/DNS SERVER}} {labelcolor black} {fontfamily {Arial}} {fontsize 12} {canvas c1}"/>
+    <configuration name="annotation a2" value="{iconcoords {617.0 148.0}} {type text} {label {DHCP/DNS SERVER}} {labelcolor black} {fontfamily {Arial}} {fontsize 12} {canvas c1}"/>
     <configuration name="annotation a3" value="{type text} {iconcoords {694.0 184.0}} {label {}} {canvas c1}"/>
     <configuration name="annotation a4" value="{iconcoords {646.0 427.0}} {type text} {label {mys}} {labelcolor black} {fontfamily {Arial}} {fontsize 12} {canvas c1}"/>
   </session_metadata>
